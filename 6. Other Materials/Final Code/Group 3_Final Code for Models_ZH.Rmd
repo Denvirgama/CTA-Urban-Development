@@ -1,0 +1,1136 @@
+---
+title: "Final Code"
+author: "Zach Hollis"
+date: "2024-05-31"
+output: html_document
+---
+Class 672
+Group 3
+Email zhollis@depaul.edu
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tigris)
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(tidyr)
+library(sf)
+library(ggplot2)
+library(openxlsx)
+library(tidycensus)
+library(caret)
+library(car)
+library(MASS)
+library(glmnet)
+library(e1071)
+library(readxl)
+```
+
+####################################################
+Data loading and Cleaning
+
+```{r}
+
+#Load Census Data Tables
+#Occupation_Data <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Census Data\\Occupation, commute times and transportation Data Chicago Counties.csv"
+
+#Occupation_Data <- read.csv(Occupation_Data)
+
+
+#Housing_Data <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Census Data\\Housing Rent and Owned Census Data Chicago Counties.csv"
+
+#Housing_Data <- read.csv(Housing_Data)
+
+#Edu_Income_Data <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Census Data\\Education and Income Census Data Chicago Counties.csv"
+
+#Edu_Income_Data <- read.csv(Edu_Income_Data)
+
+#Age_Sex_Data <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Census Data\\Age and Sex Census Data Chicago Counties.csv"
+
+#Age_Sex_Data <- read.csv(Age_Sex_Data)
+
+```
+
+```{r}
+#Join Tables
+#merged_data <- merge(Occupation_Data, Housing_Data, by = "Geography")
+#merged_data <- merge(merged_data, Edu_Income_Data, by = "Geography")
+#merged_data <- merge(merged_data, Age_Sex_Data, by = "Geography")
+```
+
+```{r}
+# Save File
+#file_path <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Cleaned_Merged_Data.xlsx"
+
+# Write the file
+#write.xlsx(merged_data, file_path)
+
+```
+
+```{r}
+Census_Data_Cleaned <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Cleaned Data Set\\Cleaned_Merged_Data.xlsx"
+Census_Data_Cleaned <- read.xlsx(Census_Data_Cleaned, sheet = 1)
+
+
+DF_Census_Data_Cleaned <- as.data.frame(Census_Data_Cleaned)
+
+DF_Census_Data_Cleaned <- DF_Census_Data_Cleaned %>% rename(GEOID = Geography)
+
+DF_Census_Data_Cleaned$GEOID <- sub(".*US", "", DF_Census_Data_Cleaned$GEOID)
+```
+
+
+```{r}
+Daily_Entries_CTA_Stations <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\CTA_L_Entries_Daily_Totals.csv"
+
+Daily_Entries_CTA_Stations <- read.csv(Daily_Entries_CTA_Stations)
+
+Daily_Entries_CTA_Stations <- Daily_Entries_CTA_Stations %>%
+  separate(date, into = c("Month", "Day", "Year"), sep = "/", convert = TRUE)
+
+#file_path <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\CTA Station Entries Data Set"
+#write.xlsx(Daily_Entries_CTA_Stations, file_path)
+```
+
+
+```{r}
+L_Station_coords <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Cleaned Data Set\\L Station Coords with Station ID.csv"
+L_Station_coords <- read.csv(L_Station_coords)
+
+options(tigris_class = "sf")
+
+# Convert dataframe to sf object
+coords_sf <- st_as_sf(L_Station_coords, coords = c("X", "Y"), crs = 4326, agr = "constant")
+
+# Fetch census tracts for Illinois
+tracts <- tracts(state = "IL", cb = TRUE, year = 2020)
+
+# CRS - Needs to be done to ensure correct coordinate types are being used 
+tracts <- st_transform(tracts, crs = st_crs(coords_sf))
+
+#spatial join
+tracts_info <- st_join(coords_sf, tracts)
+
+
+results <- tracts_info %>%
+  dplyr::select(STATION_DESCRIPTIVE_NAME, GEOID, station_id, geometry)
+
+
+StationGEOID <- as.data.frame(results)
+StationGEOID$geometry <- NULL
+
+
+file_path <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\StationGEOID"
+file_path2 <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Cleaned Merged Census Data"
+
+write.xlsx(StationGEOID, file_path)
+write.xlsx(DF_Census_Data_Cleaned, file_path2)
+```
+```{r}
+# Perform the merge (inner join)
+merged_data <- inner_join(DF_Census_Data_Cleaned, StationGEOID, by = "GEOID")
+
+file_path3 <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Cleaned Merged Census Data with station."
+write.xlsx(merged_data, file_path3)
+
+# View the first few rows of the merged data
+merged_data
+```
+
+
+```{R}
+#Average Daily Entries for each station from 2020 - 2023 for each day type: #W=Weekday, A=Saturday, U=Sunday/Holiday
+
+years <- 2020:2023
+results <- list()
+
+for (year in years) {
+  filtered_data <- filter(Daily_Entries_CTA_Stations, Year == !!year)
+  
+  average_entries <- filtered_data %>%
+    group_by(stationname, station_id, daytype) %>%
+    summarise(average_daily_entries = mean(rides, na.rm = TRUE), .groups = 'drop') %>%
+    mutate(daytype = paste0(daytype, "_", year))
+  
+  results[[as.character(year)]] <- average_entries
+}
+
+combined_results <- bind_rows(results) %>%
+  pivot_wider(
+    names_from = daytype,
+    values_from = average_daily_entries
+  )
+
+# Print the combined wide format data to check the results
+print(combined_results)
+```
+
+
+```{r}
+#Merge Ridership into Census data
+merged_data <- inner_join(merged_data, combined_results, by = "station_id")
+
+
+#Berwyn and Lawrence Stations are missing data. Fill in with estimates from other stations on the same line.
+red_line_stations <- merged_data %>% filter(grepl("Red Line", STATION_DESCRIPTIVE_NAME, ignore.case = TRUE))
+
+# Calculate the mean values for the specified columns
+mean_values <- red_line_stations %>%
+  summarize(across(c(A_2022, U_2022, W_2022, A_2023, U_2023, W_2023), ~ mean(.x, na.rm = TRUE)))
+
+# Replace 0's with mean values for Berwyn and Lawrence stations
+merged_data <- merged_data %>%
+  mutate(across(c(A_2022, U_2022, W_2022, A_2023, U_2023, W_2023), 
+                ~ ifelse(STATION_DESCRIPTIVE_NAME == 'Berwyn (Red Line)' & . == 0, mean_values[[cur_column()]], .))) %>%
+  mutate(across(c(A_2022, U_2022, W_2022, A_2023, U_2023, W_2023), 
+                ~ ifelse(STATION_DESCRIPTIVE_NAME == 'Lawrence (Red Line)' & . == 0, mean_values[[cur_column()]], .)))
+
+file_path <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Cleaned Data Set\\CTA_Final_Data_Set_2020_2023_updated.xlsx"
+#write.xlsx(merged_data, file_path)
+
+cta_data <- read_excel("C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Cleaned Data Set\\CTA_Final_Data_Set_2020_2023_updated.xlsx")
+cta_data
+```
+
+####################
+Adding the 4 new Red line stations that will be constructed as part of the ongoing expansion project
+
+```{R}
+#new Station Usage on the Redline:
+
+# Define coordinates for the new stations
+coordinates <- data.frame(
+  station = c("103rd_st", "111th_st", "116th_st", "130th_st"),
+  lat = c(41.706986342675165, 41.692409575534235, 41.682656906335666, 41.65711552377909),
+  lon = c(-87.63356123216649, -87.6330613399356, -87.62073506356002, -87.59844380143424)
+)
+
+# Convert coordinates to an sf object
+stations_sf <- st_as_sf(coordinates, coords = c("lon", "lat"), crs = 4326)
+
+# Retrieve census tracts for Illinois
+tracts <- tracts(state = "IL", year = 2020, cb = TRUE)
+
+# Transform the coordinate reference system to match the tracts data
+stations_sf <- st_transform(stations_sf, st_crs(tracts))
+
+# Perform spatial join to get census tract information for each station
+new_stations <- st_join(stations_sf, tracts, join = st_within)
+
+# Convert sf object to a regular data frame
+new_stations_df <- as.data.frame(new_stations)
+
+# Select relevant columns
+new_stations_df <- new_stations_df %>% 
+  dplyr::select(station, GEOID)
+
+# Display the results
+new_stations_df
+```
+
+```{r}
+library(stringr)
+#Get Census information based on the found GEOID for the new stations
+Census_Data_Cleaned <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Cleaned Data Set\\Cleaned_Merged_Data.xlsx"
+Census_Data_Cleaned <- read.xlsx(Census_Data_Cleaned, sheet = 1)
+Census_Data_Cleaned <- Census_Data_Cleaned %>%
+  mutate(GEOID = sub("1400000US", "", Geography))
+
+new_station_data <- merge(new_stations_df, Census_Data_Cleaned, by = "GEOID")
+
+new_station_data <- new_station_data %>% dplyr::select(-Geography)
+new_station_data <- new_station_data %>% rename(STATION_DESCRIPTIVE_NAME = station)
+
+new_station_data <- new_station_data %>%
+  mutate(
+    Lat = case_when(
+      STATION_DESCRIPTIVE_NAME == "103rd_st" ~ 41.706986342675165,
+      STATION_DESCRIPTIVE_NAME == "111th_st" ~ 41.692409575534235,
+      STATION_DESCRIPTIVE_NAME == "116th_st" ~ 41.682656906335666,
+      STATION_DESCRIPTIVE_NAME == "130th_st" ~ 41.65711552377909,
+      TRUE ~ NA_real_
+    ),
+    Long = case_when(
+      STATION_DESCRIPTIVE_NAME == "103rd_st" ~ -87.63356123216649,
+      STATION_DESCRIPTIVE_NAME == "111th_st" ~ -87.6330613399356,
+      STATION_DESCRIPTIVE_NAME == "116th_st" ~ -87.62073506356002,
+      STATION_DESCRIPTIVE_NAME == "130th_st" ~ -87.59844380143424,
+      TRUE ~ NA_real_
+    )
+  )
+
+new_station_data_no_coords <- new_station_data %>% dplyr::select(-Lat, -Long)
+new_station_data_no_coords
+```
+
+```{r}
+new_station_data_no_coords <- new_station_data_no_coords %>%
+  mutate(
+    A_2020 = 0,
+    U_2020 = 0,
+    W_2020 = 0,
+    A_2021 = 0,
+    U_2021 = 0,
+    W_2021 = 0,
+    A_2022 = 0,
+    U_2022 = 0,
+    W_2022 = 0,
+    A_2023 = 0,
+    U_2023 = 0,
+    W_2023 = 0
+  )
+
+#Replace 0s with averages from the last 4 stations of the redline since these will be the closest to the new stations.
+# Calculate the averages 
+average_values <- cta_data %>%
+  filter(STATION_DESCRIPTIVE_NAME %in% c("95th/Dan Ryan (Red Line)", "79th (Red Line)", "87th (Red Line)", "69th (Red Line)")) %>%
+  summarize(
+    avg_A_2020 = mean(A_2020, na.rm = TRUE),
+    avg_U_2020 = mean(U_2020, na.rm = TRUE),
+    avg_W_2020 = mean(W_2020, na.rm = TRUE),
+    avg_A_2021 = mean(A_2021, na.rm = TRUE),
+    avg_U_2021 = mean(U_2021, na.rm = TRUE),
+    avg_W_2021 = mean(W_2021, na.rm = TRUE),
+    avg_A_2022 = mean(A_2022, na.rm = TRUE),
+    avg_U_2022 = mean(U_2022, na.rm = TRUE),
+    avg_W_2022 = mean(W_2022, na.rm = TRUE),
+    avg_A_2023 = mean(A_2023, na.rm = TRUE),
+    avg_U_2023 = mean(U_2023, na.rm = TRUE),
+    avg_W_2023 = mean(W_2023, na.rm = TRUE)
+  )
+
+# Replace the zeros in new_station_data_no_coords with the calculated averages
+new_station_data_no_coords <- new_station_data_no_coords %>%
+  mutate(
+    A_2020 = ifelse(A_2020 == 0, average_values$avg_A_2020, A_2020),
+    U_2020 = ifelse(U_2020 == 0, average_values$avg_U_2020, U_2020),
+    W_2020 = ifelse(W_2020 == 0, average_values$avg_W_2020, W_2020),
+    A_2021 = ifelse(A_2021 == 0, average_values$avg_A_2021, A_2021),
+    U_2021 = ifelse(U_2021 == 0, average_values$avg_U_2021, U_2021),
+    W_2021 = ifelse(W_2021 == 0, average_values$avg_W_2021, W_2021),
+    A_2022 = ifelse(A_2022 == 0, average_values$avg_A_2022, A_2022),
+    U_2022 = ifelse(U_2022 == 0, average_values$avg_U_2022, U_2022),
+    W_2022 = ifelse(W_2022 == 0, average_values$avg_W_2022, W_2022),
+    A_2023 = ifelse(A_2023 == 0, average_values$avg_A_2023, A_2023),
+    U_2023 = ifelse(U_2023 == 0, average_values$avg_U_2023, U_2023),
+    W_2023 = ifelse(W_2023 == 0, average_values$avg_W_2023, W_2023)
+  )
+
+# Append the modified new_station_data_no_coords to cta_data
+cta_data <- bind_rows(cta_data, new_station_data_no_coords)
+
+# Display the final data frame
+cta_data
+```
+
+```{r}
+#Search rows that are mostly zeros and remove them as they contain little information
+# Function to find columns with more then half 0s
+find_mostly_zeros <- function(data, threshold = 0.51) {
+  mostly_zeros <- sapply(data, function(col) {
+    mean(col == 0, na.rm = TRUE) > threshold
+  })
+  names(which(mostly_zeros))
+}
+
+# Identify columns with mostly 0s (threshold set to 50%)
+columns_mostly_zeros <- find_mostly_zeros(cta_data)
+
+print(columns_mostly_zeros)
+
+# Remove columns with mostly 0s
+cta_data_final <- cta_data[, !(names(cta_data) %in% columns_mostly_zeros)]
+```
+
+
+```{r}
+#Rename columns for easy of reading
+
+cta_data_final <- cta_data_final %>%
+  rename(
+    `<High School` = `EDUCATION.Less.than.high.school.graduate`,
+    `High School` = `EDUCATION.High.school.graduate..includes.equivalency.`,
+    `Some college or Assoc.` = `EDUCATION.Some.college.or.associate.s.degree`,
+    `Bachelors` = `EDUCATION.Bachelor.s.degree`,
+    `Graduate` = `EDUCATION.Graduate.or.professional.degree`
+  )
+
+cta_data_final <- cta_data_final %>%
+  rename(
+    White = `RACE.White`,
+    `Black or African American` = `RACE.Black.or.African.American`,
+    Asian = `RACE.Asian`,
+    `Some Other Race` = `RACE.Some.other.race`,
+    `Hispanic or Latino` = `RACE.Hispanic.or.Latino.origin..of.any.race.`
+  )
+
+cta_data_final <- cta_data_final %>%
+  rename(
+    `Management, Sci, Arts` = `Total.Workers.in.Management..business..science..and.arts.occupations`,
+    Service = `Total.Workers.in.Service.occupations`,
+    `Sales and Office` = `Workers.in.Sales.and.office.occupations`,
+    `Natural Resources, Construction` = `Workers.in.Natural.resources..construction..and.maintenance.occupations`,
+    `Production, Transportation` = `Workers.in.Production..transportation..and.material.moving.occupations`
+  )
+
+
+cta_data_final <- cta_data_final %>%
+  rename(
+    `Less than 10 minutes` = `Commute.to.work.Less.than.10.minutes`,
+    `10 to 14 minutes` = `Commute.to.work.10.to.14.minutes`,
+    `15 to 19 minutes` = `Commute.to.work.15.to.19.minutes`,
+    `20 to 24 minutes` = `Commute.to.work..20.to.24.minutes`,
+    `25 to 29 minutes` = `Commute.to.work.25.to.29.minutes`,
+    `30 to 34 minutes` = `Commute.to.work.30.to.34.minutes`,
+    `35 to 44 minutes` = `Commute.to.work.35.to.44.minutes`,
+    `45 to 59 minutes` = `Commute.to.work.45.to.59.minutes`,
+    `60 or more minutes` = `Commute.to.work.60.or.more.minutes`
+  )
+
+cta_data_final <- cta_data_final %>%
+  rename(
+    `12:00 AM to 4:59 AM` = `TIME.OF.DEPARTURE.12.00.a.m..to.4.59.a.m.`,
+    `5:00 AM to 5:29 AM` = `TIME.OF.DEPARTURE.5.00.a.m..to.5.29.a.m.`,
+    `5:30 AM to 5:59 AM` = `TIME.OF.DEPARTURE.5.30.a.m..to.5.59.a.m.`,
+    `6:00 AM to 6:29 AM` = `TIME.OF.DEPARTURE.6.00.a.m..to.6.29.a.m.`,
+    `6:30 AM to 6:59 AM` = `TIME.OF.DEPARTURE.6.30.a.m..to.6.59.a.m.`,
+    `7:00 AM to 7:29 AM` = `TIME.OF.DEPARTURE.7.00.a.m..to.7.29.a.m.`,
+    `7:30 AM to 7:59 AM` = `TIME.OF.DEPARTURE.7.30.a.m..to.7.59.a.m.`,
+    `8:00 AM to 8:29 AM` = `TIME.OF.DEPARTURE.8.00.a.m..to.8.29.a.m.`,
+    `8:30 AM to 8:59 AM` = `TIME.OF.DEPARTURE.8.30.a.m..to.8.59.a.m.`,
+    `9:00 AM to 11:59 PM` = `TIME.OF.DEPARTURE.9.00.a.m..to.11.59.p.m.`
+  )
+
+cta_data_final <- cta_data_final %>%
+  rename(
+    `Under 5 years` = `Under.5.years`,
+    `5 to 9 years` = `X5.to.9.years`,
+    `10 to 14 years` = `X10.to.14.years`,
+    `15 to 19 years` = `X15.to.19.years`,
+    `20 to 24 years` = `X20.to.24.years`,
+    `25 to 29 years` = `X25.to.29.years`,
+    `30 to 34 years` = `X30.to.34.years`,
+    `35 to 39 years` = `X35.to.39.years`,
+    `40 to 44 years` = `X40.to.44.years`,
+    `45 to 49 years` = `X45.to.49.years`,
+    `50 to 54 years` = `X50.to.54.years`,
+    `55 to 59 years` = `X55.to.59.years`,
+    `60 to 64 years` = `X60.to.64.years`,
+    `65 to 69 years` = `X65.to.69.years`,
+    `70 to 74 years` = `X70.to.74.years`,
+    `75 to 79 years` = `X75.to.79.years`,
+    `80 to 84 years` = `X80.to.84.years`,
+    `85 years and over` = `X85.years.and.over`
+  )
+
+
+cta_data_final <- cta_data_final %>%
+  rename(
+    `Private Wage and Salary Workers` = `CLASS.OF.WORKER.Private.wage.and.salary.workers`,
+    `Government Workers` = `CLASS.OF.WORKER.Government.workers`,
+    `Self-Employed Workers` = `CLASS.OF.WORKER..Self.employed.workers.in.own.not.incorporated.business`,
+    `No Vehicle Available` = `No.vehicle.available`,
+    `1 Vehicle Available` = `X1.vehicle.available`,
+    `2 Vehicles Available` = `X2.vehicles.available`,
+    `3 or More Vehicles Available` = `X3.or.more.vehicles.available`,
+    `Owned House/Apt` = `Householder.lived.in.owner.occupied.housing.units`,
+    `Renting House/Apt` = `Householder.lived.in.renter.occupied.housing.units`,
+    `Income $1 to $9,999 or Loss` = `INCOME..1.to..9.999.or.loss`,
+    `Income $10,000 to $14,999` = `INCOME..10.000.to..14.999`,
+    `Income $15,000 to $24,999` = `INCOME..15.000.to..24.999`,
+    `Income $25,000 to $34,999` = `INCOME..25.000.to..34.999`,
+    `Income $35,000 to $49,999` = `INCOME..35.000.to..49.999`,
+    `Income $50,000 to $64,999` = `INCOME..50.000.to..64.999`,
+    `Income $65,000 to $74,999` = `INCOME..65.000.to..74.999`,
+    `Income $75,000 or More` = `INCOME..75.000.or.more`,
+    `Est. Pop Below Poverty Line` = `Estimate..Total..POVERTY.STATUS.IN.THE.PAST.12.MONTHS..Population.for.whom.poverty.status.is.determined..Below.100.percent.of.the.poverty.level`
+  )
+
+
+cta_data_final <- cta_data_final %>%
+  rename(
+    `IT Finance Real Estate` = `Information.and.finance.and.insurance..and.real.estate.and.rental.and.leasing`,
+    `Professional or Scientific Mgmt` = `Professional..scientific..management..and.administrative.and.waste.management.services`,
+    `Social Services`  = `Educational.services..and.health.care.and.social.assistance`,
+    `Arts Entertainment or Food Services` = `Arts..entertainment..and.recreation..and.accommodation.and.food.services`,
+    `Other Services` = `Other.services..except.public.administration.`,
+    `Public Admin` = `Public.administration`
+  )
+
+
+```
+
+
+####################################################################
+cta_data_final is now complete dataset with CTA Entries, New Redline Station data and the Census tract data
+
+####################################################################
+Model Construction
+
+
+```{r}
+#W=Weekday, A=Saturday, U=Sunday/Holiday
+predictor_vars <- cta_data_final %>%
+  dplyr::select(-A_2023, -GEOID, -STATION_DESCRIPTIVE_NAME, -stationname, -station_id, -U_2023, -W_2023, -U_2022, -W_2022, -A_2022, -W_2021, -U_2021, -A_2021, -A_2020, -W_2020, -U_2020)
+
+# Scale the predictor variables
+scaled_predictors <- scale(predictor_vars)
+
+# Combine the scaled predictors with the response variable A_2023
+scaled_data_lm <- data.frame(A_2023 = cta_data_final$A_2023, scaled_predictors)
+
+# Fit the linear model using the scaled data
+model_A_scaled_lm <- lm(A_2023 ~ ., data = scaled_data_lm)
+
+# Summarize the model
+summary(model_A_scaled_lm)
+
+
+predictions <- predict(model_A_scaled_lm, newdata = scaled_data_lm)
+
+# Calculate the residuals (differences between actual and predicted values)
+residuals <- scaled_data_lm$A_2023 - predictions
+
+# Calculate the RMSE
+rmse <- sqrt(mean(residuals^2))
+
+# Print the RMSE
+print(rmse)
+```
+```{r}
+# PCA
+pca_result <- prcomp(scaled_predictors, scale = TRUE)
+summary(pca_result)
+
+pca_loadings <- pca_result$rotation
+
+```
+
+```{r}
+#scree plot
+var_explained <- pca_result$sdev^2 / sum(pca_result$sdev^2)
+cumulative_variance <- cumsum(var_explained)
+
+# Create a data frame for plotting
+pca_variance_df <- data.frame(PC = seq_along(var_explained),
+                              Variance_Explained = var_explained,
+                              Cumulative_Variance = cumulative_variance)
+
+ggplot(pca_variance_df, aes(x = PC)) +
+  geom_bar(aes(y = var_explained), stat = "identity", fill = "steelblue") +
+  geom_line(aes(y = Cumulative_Variance * max(var_explained) / max(cumulative_variance)), color = "red", size = 1) +
+  geom_point(aes(y = Cumulative_Variance * max(var_explained) / max(cumulative_variance)), color = "red") +
+  theme_minimal() +
+  labs(title = "Scree Plot with Cumulative Variance Explained",
+       x = "Principal Components",
+       y = "Proportion of Variance Explained") +
+  scale_x_continuous(breaks = seq(1, 30, by = 1), limits = c(0, 31)) +
+  scale_y_continuous(
+    sec.axis = sec_axis(~ . * max(cumulative_variance) / max(var_explained), 
+                        name = "Cumulative Variance Explained")
+  ) +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.title.y.right = element_text(color = "red"),
+        axis.text.y.right = element_text(color = "red"),
+        axis.line.y.right = element_line(color = "red"),
+        axis.ticks.y.right = element_line(color = "red"))
+```
+```{r}
+#Extract the PCA components to test for model without historical ridership data
+pca_components <- as.data.frame(pca_result$x)
+
+data_pca_A_2023 <- data.frame(A_2023 = cta_data_final$A_2023, pca_components)
+```
+
+
+```{r}
+#A_2023 Model
+set.seed(123)
+trainIndex <- createDataPartition(data_pca_A_2023$A_2023, p = .8, list = FALSE, times = 1)
+dataTrain <- data_pca_A_2023[trainIndex,]
+dataTest <- data_pca_A_2023[-trainIndex,]
+
+# Fit a linear model using the PCA components
+model_pca_A_2023 <- lm(A_2023 ~ ., data = dataTrain)
+
+# Summarize the model
+summary(model_pca_A_2023)
+
+# Make predictions on the test data
+predictions <- predict(model_pca_A_2023, newdata = dataTest)
+
+# Calculate RMSE
+rmse <- sqrt(mean((dataTest$A_2023 - predictions)^2))
+rmse
+```
+
+
+
+
+
+
+```{r}
+#Add PCA components to dataframe to create test splits
+pca_components_all <- as.data.frame(pca_result$x)
+data_pca_A_2023_all <- data.frame(A_2023 = cta_data_final$A_2023, pca_components_all)
+data_pca_W_2023_all <- data.frame(W_2023 = cta_data_final$W_2023, pca_components_all)
+data_pca_U_2023_all <- data.frame(U_2023 = cta_data_final$U_2023, pca_components_all)
+set.seed(123)
+trainIndex <- createDataPartition(data_pca_A_2023$A_2023, p = .8, list = FALSE, times = 1)
+dataTrain_all <- data_pca_A_2023_all[trainIndex,]
+dataTest_all <- data_pca_A_2023_all[-trainIndex,]
+
+# Fit the initial linear model
+model_pca_A_2023 <- lm(A_2023 ~ ., data = dataTrain_all)
+
+# Perform stepwise selection
+model_pca_A_2023_step <- step(model_pca_A_2023, direction = "both", trace = 0)
+
+# Print the summary of the stepwise-selected model
+summary_model <- summary(model_pca_A_2023_step)
+summary(model_pca_A_2023_step)
+
+predictions_step <- predict(model_pca_A_2023_step, newdata = dataTest_all)
+
+# Calculate RMSE
+rmse_step <- sqrt(mean((dataTest_all$A_2023 - predictions_step)^2))
+rmse_step
+```
+
+```{r}
+selected_features <- names(coef(model_pca_A_2023_step))[-1]  # Exclude the intercept
+
+# Create training and test datasets with selected features
+train_data <- dataTrain_all[, c("A_2023", selected_features)]
+test_data <- dataTest_all[, c("A_2023", selected_features)]
+
+# Prepare matrices for glmnet
+x_train <- as.matrix(train_data[, -1])  # Exclude the response variable
+y_train <- train_data$A_2023
+x_test <- as.matrix(test_data[, -1])  # Exclude the response variable
+y_test <- test_data$A_2023
+
+# Define the grid for parameter tuning
+tuneGrid <- expand.grid(
+  alpha = seq(0, 1, by = 0.1),
+  lambda = seq(0.0001, 1, length = 10)
+)
+
+# Set up trainControl
+train_control <- trainControl(method = "cv", number = 10) 
+
+# Train the elastic net model using caret
+set.seed(123)
+elastic_net_model <- train(x_train, y_train,
+                           method = "glmnet",
+                           tuneGrid = tuneGrid,
+                           trControl = train_control)
+
+# Print the best model and its parameters
+#print(elastic_net_model$bestTune)
+#print(elastic_net_model)
+
+# Predict on the test set
+predictions <- predict(elastic_net_model, newdata = x_test)
+
+# Evaluate the model performance
+performance <- postResample(predictions, y_test)
+#print(performance)
+elastic_net_model
+```
+```{r}
+#PCA with historical ridership data
+
+# Remove target variables U_2023, A_2023, and W_2023
+predictor_data <- cta_data_final %>%
+  dplyr::select(-U_2023, -A_2023, -W_2023, -GEOID, -STATION_DESCRIPTIVE_NAME, -stationname, -station_id)
+
+# Save scaling parameters
+scaling_params <- list(center = colMeans(predictor_data), scale = apply(predictor_data, 2, sd))
+
+# Perform PCA using prcomp
+pca_historical_result <- prcomp(predictor_data, center = TRUE, scale. = TRUE)
+
+pca_historical_loadings <- pca_historical_result$rotation
+
+summary(pca_historical_result)
+
+```
+```{r}
+#scree plot
+var_explained <- pca_historical_result$sdev^2 / sum(pca_historical_result$sdev^2)
+cumulative_variance <- cumsum(var_explained)
+
+# Create a data frame for plotting
+pca_variance_df <- data.frame(PC = seq_along(var_explained),
+                              Variance_Explained = var_explained,
+                              Cumulative_Variance = cumulative_variance)
+
+ggplot(pca_variance_df, aes(x = PC)) +
+  geom_bar(aes(y = var_explained), stat = "identity", fill = "steelblue") +
+  geom_line(aes(y = Cumulative_Variance * max(var_explained) / max(cumulative_variance)), color = "red", size = 1) +
+  geom_point(aes(y = Cumulative_Variance * max(var_explained) / max(cumulative_variance)), color = "red") +
+  theme_minimal() +
+  labs(title = "Scree Plot with Cumulative Variance Explained (Including Historic Data)",
+       x = "Principal Components",
+       y = "Proportion of Variance Explained") +
+  scale_x_continuous(breaks = seq(1, 30, by = 1), limits = c(0, 31)) +
+  scale_y_continuous(
+    sec.axis = sec_axis(~ . * max(cumulative_variance) / max(var_explained), 
+                        name = "Cumulative Variance Explained")
+  ) +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.title.y.right = element_text(color = "red"),
+        axis.text.y.right = element_text(color = "red"),
+        axis.line.y.right = element_line(color = "red"),
+        axis.ticks.y.right = element_line(color = "red"))
+```
+
+
+
+
+
+
+
+```{r}
+#Add Historical ridership data for 2020 2021 and 2022 back into data set to improve model accuracy
+
+pca_components_all_hist <- as.data.frame(pca_historical_result$x)
+data_pca_A_2023_all_hist <- data.frame(A_2023 = cta_data_final$A_2023, pca_components_all_hist)
+data_pca_W_2023_all_hist <- data.frame(W_2023 = cta_data_final$W_2023, pca_components_all_hist)
+data_pca_U_2023_all_hist <- data.frame(U_2023 = cta_data_final$U_2023, pca_components_all_hist)
+set.seed(123)
+trainIndex <- createDataPartition(data_pca_A_2023_all_hist$A_2023, p = .8, list = FALSE, times = 1)
+dataTrain_all <- data_pca_A_2023_all_hist[trainIndex,]
+dataTest_all <- data_pca_A_2023_all_hist[-trainIndex,]
+
+# Fit the initial linear model
+model_pca_A_2023 <- lm(A_2023 ~ ., data = dataTrain_all)
+
+# Perform stepwise selection
+data_pca_A_2023_all_hist_step <- step(model_pca_A_2023, direction = "both", trace = 0)
+
+# Print the summary of the stepwise-selected model
+summary_model <- summary(data_pca_A_2023_all_hist_step)
+summary(data_pca_A_2023_all_hist_step)
+
+```
+
+
+
+```{r}
+#RMSE for Model
+predictions <- predict(data_pca_A_2023_all_hist_step, newdata = dataTest_all)
+
+# Calculate RMSE
+test_rmse <- sqrt(mean((predictions - dataTest_all$A_2023)^2))
+
+# Print RMSE
+cat("Test RMSE:", test_rmse, "\n")
+
+# Create a data frame with actual and predicted values
+results <- data.frame(
+  Actual = dataTest_all$A_2023,
+  Predicted = predictions
+)
+
+# Plot
+ggplot(results, aes(x = Actual, y = Predicted)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  labs(
+    title = "Predicted vs Actual Values: Linear Historical Stepwise Model",
+    x = "Actual Values",
+    y = "Predicted Values"
+  ) +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
+```{r}
+#Create new model that only uses most significant coefficients 
+# Extract coefficients table
+coefficients_summary <- summary_model$coefficients
+
+# Filter PCs with significance level of 0.01 or better
+significant_pcs <- rownames(coefficients_summary)[coefficients_summary[, "Pr(>|t|)"] <= 0.001]
+
+# Remove the intercept from the list of significant PCs
+significant_pcs <- significant_pcs[significant_pcs != "(Intercept)"]
+
+# Create a new dataset with only significant PCs
+significant_pcs_data <- data.frame(dataTrain_all[, significant_pcs])
+
+# Add the dependent variable back to the dataset
+significant_pcs_data$A_2023 <- dataTrain_all$A_2023
+
+# Fit a new linear regression model using the significant PCs
+train_control <- trainControl(method = "cv", number = 10)
+
+new_model_step <- train(A_2023~ ., data = significant_pcs_data, method = "lm",
+    trControl = train_control)
+
+
+# Summarize the new model
+summary(new_model_step$finalModel)
+
+
+coefficients <- coef(new_model_step$finalModel)
+
+# Construct the formula
+formula <- paste("A_2023 ~", paste(names(coefficients)[-1], collapse = " + "))
+print(formula)
+
+fit<-lm(A_2023 ~ PC1 + PC2 + PC3 + PC4 + PC5 + PC6 + PC8 + PC11 + PC13 + PC14 + PC15 + PC17 + PC18 + PC19 + PC23 + PC24 + PC25 + PC26 + PC27 + PC30 + PC31 + PC32 + PC33 + PC35 + PC36 + PC37 + PC38 + PC41 + PC44 + PC45 + PC46 + PC47 + PC48 + PC49 + PC50 + PC51 + PC53 + PC54 + PC55 + PC58 + PC59 + PC61 + PC62 + PC63 + PC65 + PC66 + PC67 + PC68 + PC69 + PC70 + PC71 + PC73 + PC74 + PC77 + PC80 + PC81 + PC82 + PC83 + PC84 + PC85 + PC86 + PC89 + PC90 + PC97 + PC99 + PC101 + PC102, data = dataTrain_all)
+
+#RMSE for Model
+predictions <- predict(fit, newdata = dataTest_all)
+
+# Calculate RMSE
+test_rmse <- sqrt(mean((predictions - dataTest_all$A_2023)^2))
+
+# Print RMSE
+cat("Test RMSE:", test_rmse, "\n")
+```
+
+
+
+######################################
+SVM Models 
+```{R}
+set.seed(123)
+# Define the grid search
+svr_linear_grid <- expand.grid(
+  C = seq(0.1, 10, by = 2)
+)
+
+# Train
+svr_linear_model <- train(
+  A_2023 ~ ., data = dataTrain_all,
+  method = "svmLinear",
+  trControl = trainControl(method = "cv", number = 10),
+  preProcess = c("center", "scale"),
+  tuneGrid = svr_linear_grid
+)
+
+# Predictions and RMSE
+svr_linear_predictions <- predict(svr_linear_model, newdata = dataTest_all)
+svr_linear_rmse <- sqrt(mean((svr_linear_predictions - dataTest_all$A_2023)^2))
+cat("Support Vector Regression with Linear Kernel Test RMSE:", svr_linear_rmse, "\n")
+```
+
+```{r}
+# SVM Polynomial and Grid Search
+set.seed(123)
+svr_poly_grid <- expand.grid(
+  degree = seq(2, 5, by = 1),  
+  scale = seq(0.01, 0.1, by = 0.03), 
+  C = seq(0.1, 10, by = 2)  
+)
+
+svr_poly_model <- train(
+  A_2023 ~ ., data = dataTrain_all,
+  method = "svmPoly",
+  trControl = trainControl(method = "cv", number = 10),
+  preProcess = c("center", "scale"),
+  tuneGrid = svr_poly_grid
+)
+
+# Predictions and RMSE
+svr_poly_predictions <- predict(svr_poly_model, newdata = dataTest_all)
+svr_poly_rmse <- sqrt(mean((svr_poly_predictions - dataTest_all$A_2023)^2))
+cat("Support Vector Regression with Polynomial Kernel Test RMSE:", svr_poly_rmse, "\n")
+```
+
+
+```{r}
+# Load necessary libraries
+set.seed(123)
+
+# Grid search parameters 
+svr_rbf_grid <- expand.grid(
+  sigma = seq(0.01, 0.1, by = 0.03),
+  C = seq(0.1, 10, by = 2)
+)
+
+# Train 10-fold cross-validation
+svr_rbf_model <- train(
+  A_2023 ~ ., data = dataTrain_all,
+  method = "svmRadial",
+  trControl = trainControl(method = "cv", number = 10),
+  preProcess = c("center", "scale"),
+  tuneGrid = svr_rbf_grid
+)
+
+# Predictions and RMSE
+svr_rbf_predictions <- predict(svr_rbf_model, newdata = dataTest_all)
+svr_rbf_rmse <- sqrt(mean((svr_rbf_predictions - dataTest_all$A_2023)^2))
+cat("Support Vector Regression with RBF Kernel Test RMSE:", svr_rbf_rmse, "\n")
+
+```
+
+#####################
+Elastic Net Regression Model
+
+```{r}
+x_train <- as.matrix(dataTrain_all[, -1]) # Exclude the response variable
+y_train <- dataTrain_all$A_2023
+
+x_test <- as.matrix(dataTest_all[, -1]) # Exclude the response variable
+y_test <- dataTest_all$A_2023
+
+# Gridsearch
+alpha_values <- seq(0, 1, by = 0.01) 
+lambda_values <- seq(0, 20, by = 0.01) 
+
+cv_fit <- train(
+  x = x_train,
+  y = y_train,
+  method = "glmnet",
+  trControl = trainControl(method = "cv", number = 10),
+  tuneGrid = expand.grid(alpha = alpha_values, lambda = lambda_values)
+)
+```
+
+```{r}
+# Print the best model and its parameters
+best_model_A <- cv_fit$finalModel
+best_alpha_A <- cv_fit$bestTune$alpha
+best_lambda_A <- cv_fit$bestTune$lambda
+
+cat("Best Alpha for A_2023 with PCA:", best_alpha_A, "\n")
+cat("Best Lambda for A_2023 with PCA:", best_lambda_A, "\n")
+
+# Fit the final model 
+final_model_A <- glmnet(x_train, y_train, alpha = best_alpha_A, lambda = best_lambda_A)
+
+# Evaluate
+predictions <- predict(final_model_A, s = best_lambda_A, newx = x_test)
+test_rmse_A <- sqrt(mean((predictions - y_test)^2))
+
+cat("Test RMSE for A_2023 with PCA:", test_rmse_A, "\n")
+```
+```{r}
+# Create a data frame for plotting
+results_df <- data.frame(Actual = y_test, Predicted = as.vector(predictions))
+
+# Plot the predicted vs actual values
+ggplot(results_df, aes(x = Actual, y = Predicted)) +
+  geom_point(color = 'blue') +
+  geom_abline(intercept = 0, slope = 1, color = 'red', linetype = 'dashed') +
+  labs(title = "Predicted vs Actual Values for A_2023",
+       x = "Actual Values",
+       y = "Predicted Values") +
+  theme_minimal()
+
+```
+
+```{r}
+# Extract coefficients of the final model
+coefficients <- coef(final_model_A, s = best_lambda_A)
+
+# Convert the coefficients to a data frame for easier manipulation
+coeff_df <- as.data.frame(as.matrix(coefficients))
+coeff_df <- cbind(variable = rownames(coeff_df), coeff_df)
+rownames(coeff_df) <- NULL
+
+# Rename the coefficient column for easier reference
+colnames(coeff_df)[2] <- "coefficient"
+
+# Filter out zero coefficients (if any)
+non_zero_coeff <- coeff_df[coeff_df$coefficient != 0, ]
+
+# Display the coefficients
+print(non_zero_coeff)
+
+# Construct the formula representation
+formula <- paste(non_zero_coeff$variable, "*", round(non_zero_coeff$coefficient, 4), collapse = " + ")
+formula <- paste("y =", formula)
+
+cat("Final Model Formula:\n", formula, "\n")
+
+```
+
+
+
+```{r}
+train_index <- createDataPartition(data_pca_W_2023_all_hist$W_2023, p = 0.8, list = FALSE)
+dataTrain_W <- data_pca_W_2023_all_hist[train_index, ]
+dataTest_W <- data_pca_W_2023_all_hist[-train_index, ]
+
+x_train_W <- as.matrix(dataTrain_W[, -1]) # Exclude the response variable
+y_train_W <- dataTrain_W$W_2023
+
+x_test_W <- as.matrix(dataTest_W[, -1]) # Exclude the response variable
+y_test_W <- dataTest_W$W_2023
+
+# Fit the model for W_2023 using PCA components
+cv_fit_W <- train(
+  x = x_train_W,
+  y = y_train_W,
+  method = "glmnet",
+  trControl = trainControl(method = "cv", number = 10),
+  tuneGrid = expand.grid(alpha = alpha_values, lambda = lambda_values)
+)
+
+best_model_W <- cv_fit_W$finalModel
+best_alpha_W <- cv_fit_W$bestTune$alpha
+best_lambda_W <- cv_fit_W$bestTune$lambda
+
+cat("Best Alpha for W_2023 with PCA:", best_alpha_W, "\n")
+cat("Best Lambda for W_2023 with PCA:", best_lambda_W, "\n")
+
+final_model_W <- glmnet(x_train_W, y_train_W, alpha = best_alpha_W, lambda = best_lambda_W)
+
+predictions_W <- predict(final_model_W, s = best_lambda_W, newx = x_test_W)
+test_rmse_W <- sqrt(mean((predictions_W - y_test_W)^2))
+
+cat("Test RMSE for W_2023 with PCA:", test_rmse_W, "\n")
+```
+
+```{r}
+# Create a data frame for plotting
+results_df_W <- data.frame(Actual = y_test_W, Predicted = as.vector(predictions_W))
+
+# Plot the predicted vs actual values
+ggplot(results_df_W, aes(x = Actual, y = Predicted)) +
+  geom_point(color = 'blue') +
+  geom_abline(intercept = 0, slope = 1, color = 'red', linetype = 'dashed') +
+  labs(title = "Predicted vs Actual Values for W_2023",
+       x = "Actual Values",
+       y = "Predicted Values") +
+  theme_minimal()
+
+```
+
+
+```{r}
+
+train_index <- createDataPartition(data_pca_U_2023_all_hist$U_2023, p = 0.8, list = FALSE)
+dataTrain_U <- data_pca_U_2023_all_hist[train_index, ]
+dataTest_U <- data_pca_U_2023_all_hist[-train_index, ]
+
+x_train_U <- as.matrix(dataTrain_U[, -1]) # Exclude the response variable
+y_train_U <- dataTrain_U$U_2023
+
+x_test_U <- as.matrix(dataTest_U[, -1]) # Exclude the response variable
+y_test_U <- dataTest_U$U_2023
+
+# Fit the model for U_2023 using PCA components
+cv_fit_U <- train(
+  x = x_train_U,
+  y = y_train_U,
+  method = "glmnet",
+  trControl = trainControl(method = "cv", number = 10),
+  tuneGrid = expand.grid(alpha = alpha_values, lambda = lambda_values)
+)
+
+best_model_U <- cv_fit_U$finalModel
+best_alpha_U <- cv_fit_U$bestTune$alpha
+best_lambda_U <- cv_fit_U$bestTune$lambda
+
+cat("Best Alpha for U_2023 with PCA:", best_alpha_U, "\n")
+cat("Best Lambda for U_2023 with PCA:", best_lambda_U, "\n")
+
+final_model_U <- glmnet(x_train_U, y_train_U, alpha = best_alpha_U, lambda = best_lambda_U)
+
+predictions_U <- predict(final_model_U, s = best_lambda_U, newx = x_test_U)
+test_rmse_U <- sqrt(mean((predictions_U - y_test_U)^2))
+
+cat("Test RMSE for U_2023 with PCA:", test_rmse_U, "\n")
+
+```
+
+```{r}
+# Create a data frame for plotting
+results_df_U <- data.frame(Actual = y_test_U, Predicted = as.vector(predictions_U))
+
+# Plot the predicted vs actual values
+ggplot(results_df_U, aes(x = Actual, y = Predicted)) +
+  geom_point(color = 'blue') +
+  geom_abline(intercept = 0, slope = 1, color = 'red', linetype = 'dashed') +
+  labs(title = "Predicted vs Actual Values for U_2023",
+       x = "Actual Values",
+       y = "Predicted Values") +
+  theme_minimal()
+```
+######################
+Get Predictions for New Stations
+```{r}
+#U_2023
+# Get predictions for specific rows
+specific_rows_indices <- c(144, 145, 146, 147)
+
+# Extract the specific rows from the original dataset
+specific_rows <- data_pca_U_2023_all_hist[specific_rows_indices, ]
+
+# Convert to matrix form excluding the response variable
+x_specific_rows <- as.matrix(specific_rows[, -1]) # Exclude the response variable
+
+# Predict U_2023 values for the specific rows
+predictions_specific_rows_U <- predict(final_model_U, s = best_lambda_U, newx = x_specific_rows)
+
+# Combine the row indices with their predictions
+results_specific_rows <- data.frame(
+  Row_Index = specific_rows_indices,
+  Predicted_U_2023 = predictions_specific_rows_U
+)
+
+# Print the results
+print(results_specific_rows)
+```
+
+```{r}
+#W_2023
+specific_rows_indices <- c(144, 145, 146, 147)
+
+# Extract the specific rows from the original dataset
+specific_rows <- data_pca_W_2023_all_hist[specific_rows_indices, ]
+
+# Convert to matrix form excluding the response variable
+x_specific_rows <- as.matrix(specific_rows[, -1]) # Exclude the response variable
+
+# Predict W_2023 values for the specific rows
+predictions_specific_rows_W <- predict(final_model_W, s = best_lambda_W, newx = x_specific_rows)
+
+# Combine the row indices with their predictions
+results_specific_rows <- data.frame(
+  Row_Index = specific_rows_indices,
+  Predicted_W_2023 = predictions_specific_rows_W
+)
+
+# Print the results
+print(results_specific_rows)
+```
+
+
+```{r}
+# Get predictions for specific rows
+specific_rows_indices <- c(144, 145, 146, 147)
+
+# Extract the specific rows from the original dataset
+specific_rows <- data_pca_A_2023_all_hist[specific_rows_indices, ]
+
+# Convert to matrix form excluding the response variable
+x_specific_rows <- as.matrix(specific_rows[, -1]) # Exclude the response variable
+
+# Predict A_2023 values for the specific rows
+predictions_specific_rows_A <- predict(final_model_A, s = best_lambda_A, newx = x_specific_rows)
+
+# Combine the row indices with their predictions
+results_specific_rows <- data.frame(
+  Row_Index = specific_rows_indices,
+  Predicted_A_2023 = predictions_specific_rows_A
+)
+
+# Print the results
+print(results_specific_rows)
+```

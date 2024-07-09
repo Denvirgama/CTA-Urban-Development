@@ -1,0 +1,499 @@
+---
+title: "Project CTA Data"
+author: "Zach Hollis"
+date: '2024-04-13'
+output: html_document
+---
+Class 672
+Group 3
+Email zhollis@depaul.edu
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Define file paths
+L_Station_Entries_path <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\CTA_L_Entries_Daily_Totals.csv"
+
+Annual_Ridership_path <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\CTA_-_Ridership_-_Annual_Boarding_Totals_20240413.csv"
+
+Daily_Ridership_Totals_path <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\CTA_-_Ridership_-_Daily_Boarding_Totals_20240413.csv"
+```
+
+```{r}
+# Read CSV files
+L_Station_Entries <- read.csv(L_Station_Entries_path)
+Annual_Ridership <- read.csv(Annual_Ridership_path)
+Daily_Ridership_Totals <- read.csv(Daily_Ridership_Totals_path)
+```
+
+
+```{r pressure, echo=FALSE}
+library(ggplot2)
+library(lubridate)
+
+L_Station_Entries$date <- as.Date(L_Station_Entries$date, format="%m/%d/%Y")
+
+# Aggregate total rides by day
+daily_rides <- aggregate(rides ~ date, data=L_Station_Entries, sum)
+
+```
+```{r}
+# Create a line plot for daily total rides
+ggplot(data=daily_rides, aes(x=date, y=rides)) +
+  geom_line(color="blue") +
+  labs(title="Trend of Daily Total Rides Over Time",
+       x="Date",
+       y="Total Rides") +
+  theme_minimal()
+
+```
+```{r}
+station_rides <- L_Station_Entries %>%
+  group_by(stationname) %>%
+  summarise(total_rides = sum(rides)) %>%
+  arrange(desc(total_rides))
+
+# Get the top 20 stations
+top_20_stations <- head(station_rides, 20)
+
+```
+
+```{r}
+options(scipen = 100)
+library(ggplot2)
+ggplot(data=station_rides[1:20,], aes(x=reorder(stationname, -total_rides), y=total_rides)) +
+  geom_bar(stat="identity", fill="steelblue") +
+  labs(title="Top 20 Stations by Total Rides",
+       x="Station Name",
+       y="Total Rides") +
+  theme(axis.text.x=element_text(angle=90, hjust=1))
+```
+
+
+
+```{R}
+rides_by_daytype <- aggregate(rides ~ daytype, data=L_Station_Entries, sum)
+
+ggplot(data=rides_by_daytype, aes(x=daytype, y=rides, fill=daytype)) +
+  geom_bar(stat="identity") +
+  labs(title="Total Rides by Day Type",
+       x="Day Type",
+       y="Total Rides") +
+  theme_minimal() +
+  scale_fill_brewer(palette="Paired")
+
+```
+
+
+```{r}
+sorted_rides <- L_Station_Entries[order(-L_Station_Entries$rides), ]
+
+top_rides <- head(sorted_rides, 10)
+
+top_rides
+```
+
+
+```{r}
+# Filter data for weekdays only
+weekday_data <- subset(L_Station_Entries, daytype == "W")
+
+# Aggregate total or average rides by station
+rides_by_station <- aggregate(rides ~ stationname, data=weekday_data, sum)  # Or use mean for average
+
+# Sort data by rides in descending order
+sorted_stations <- rides_by_station[order(-rides_by_station$rides), ]
+
+# Select the top n stations
+top_stations_weekday <- head(sorted_stations, 10)  # Adjust the number 10 as needed
+top_stations_weekday
+
+
+ggplot(data=top_stations_weekday, aes(x=reorder(stationname, -rides), y=rides)) +
+  geom_bar(stat="identity") +
+  labs(title="Top Stations for Weekday Rides",
+       x="Station Name",
+       y="Total Rides") +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=90, hjust=1))
+```
+
+```{r}
+# Filter data for weekdays only
+weekend_holiday_data <- subset(L_Station_Entries, daytype %in% c("A", "U"))
+
+# Aggregate total or average rides by station
+rides_by_station <- aggregate(rides ~ stationname, data=weekend_holiday_data, sum)  # Or use mean for average
+
+# Sort data by rides in descending order
+sorted_stations <- rides_by_station[order(-rides_by_station$rides), ]
+
+# Select the top n stations
+top_stations_weekend <- head(sorted_stations, 10)  # Adjust the number 10 as needed
+top_stations_weekend
+
+
+ggplot(data=top_stations_weekend, aes(x=reorder(stationname, -rides), y=rides)) +
+  geom_bar(stat="identity") +
+  labs(title="Top Stations for Weekend Rides",
+       x="Station Name",
+       y="Total Rides") +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=90, hjust=1))
+
+```
+
+
+
+```{r}
+# Aggregate total rides by station
+total_rides_by_station <- aggregate(rides ~ stationname, data=L_Station_Entries, sum)
+
+# Sort data by rides in ascending order to find the least used stations
+sorted_stations_lowest <- total_rides_by_station[order(total_rides_by_station$rides), ]
+
+# Select the bottom n stations
+lowest_stations <- head(sorted_stations_lowest, 10)  # Adjust the number 10 as needed
+
+# Create a bar plot for the least used stations
+ggplot(data=lowest_stations, aes(x=reorder(stationname, -rides), y=rides)) +
+  geom_bar(stat="identity") +
+  labs(title="Least Used Stations",
+       x="Station Name",
+       y="Total Rides") +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=90, hjust=1))  
+
+```
+```{r}
+ggplot(top_rides, aes(x = reorder(paste(stationname, date), rides), y = rides)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  coord_flip() +
+  labs(title = "Top 10 Daily Rides at CTA Stations",
+       x = "Station and Date",
+       y = "Number of Rides") +
+  theme_minimal()
+
+```
+
+```{r}
+#Load Census Data Tables
+Occupation_Data <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Census Data\\Occupation, commute times and transportation Data Chicago Counties.csv"
+
+Occupation_Data <- read.csv(Occupation_Data)
+
+
+Housing_Data <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Census Data\\Housing Rent and Owned Census Data Chicago Counties.csv"
+
+Housing_Data <- read.csv(Housing_Data)
+
+Edu_Income_Data <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Census Data\\Education and Income Census Data Chicago Counties.csv"
+
+Edu_Income_Data <- read.csv(Edu_Income_Data)
+
+Age_Sex_Data <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Census Data\\Age and Sex Census Data Chicago Counties.csv"
+
+Age_Sex_Data <- read.csv(Age_Sex_Data)
+
+```
+
+```{r}
+library(dplyr)
+#Join Tables
+merged_data <- merge(Occupation_Data, Housing_Data, by = "Geography")
+merged_data <- merge(merged_data, Edu_Income_Data, by = "Geography")
+merged_data <- merge(merged_data, Age_Sex_Data, by = "Geography")
+
+#drop duplicated columns
+merged_data <- merged_data %>%
+  dplyr::select(-Geographic.Area.Name.x, -Geographic.Area.Name.y)
+```
+
+```{r}
+library(openxlsx)
+library(ggplot2)
+# Specify the path
+file_path <- "C:\\Users\\holli\\Desktop\\Depaul\\Spring 2024\\Capstone\\Cleaned Data Set"
+
+# Write the file
+write.xlsx(merged_data, file_path)
+```
+
+
+```{r}
+
+library(gridExtra)
+merged_data$Median.age..years. <- as.numeric(as.character(merged_data$Median.age..years.))
+
+
+# Univariate Analysis: Age and Income variables
+plot_age <- ggplot(merged_data, aes(x = Median.age..years.)) +
+  geom_histogram(binwidth = 2, fill = 'blue', color = 'black') +
+  theme_minimal() +
+  ggtitle('Distribution of Median Age')
+
+plot_age
+```
+
+```{r}
+merged_data$Median.income..dollars. <- as.numeric(as.character(merged_data$Median.income..dollars.))
+
+plot_income <- ggplot(merged_data, aes(x = Median.income..dollars.)) +
+  geom_histogram(binwidth = 5000, fill = 'green', color = 'black') +
+  theme_minimal() +
+  ggtitle('Distribution of Median Income')+
+  xlab('Median Income') +
+  ylab('Count of Census Tracts') 
+
+plot_income
+```
+```{r}
+# Select Age columns
+library(tidyverse)
+
+# Rename age columns to remove 'X' at the beginning
+colnames(merged_data) <- gsub("^X", "", colnames(merged_data))
+
+# List of age columns
+age_columns <- c('Under.5.years', '5.to.9.years', '10.to.14.years', '15.to.19.years', 
+                 '20.to.24.years', '25.to.29.years', '30.to.34.years', '35.to.39.years', 
+                 '40.to.44.years', '45.to.49.years', '50.to.54.years', '55.to.59.years', 
+                 '60.to.64.years', '65.to.69.years', '70.to.74.years', '75.to.79.years', 
+                 '80.to.84.years', '85.years.and.over')
+
+
+# Convert the age columns to numeric
+merged_data[age_columns] <- sapply(merged_data[age_columns], as.numeric)
+
+# Sum the population counts for each age group
+age_distribution <- colSums(merged_data[age_columns])
+
+# Create a data frame for plotting
+age_distribution_df <- data.frame(
+  Age_Group = factor(names(age_distribution), levels = age_columns),  # Set the order of the age groups
+  Population = age_distribution
+)
+
+# Create the bar plot
+plot_age_distribution <- ggplot(age_distribution_df, aes(x = Age_Group, y = Population)) +
+  geom_bar(stat = "identity", fill = 'blue', color = 'black') +
+  theme_minimal() +
+  ggtitle('Distribution of Age Groups') +
+  xlab('Age Group') +
+  ylab('Population') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Display the plot
+print(plot_age_distribution)
+
+```
+
+```{R}
+# List of education columns with new names
+education_columns <- c('EDUCATION.Less.than.high.school.graduate', 
+                       'EDUCATION.High.school.graduate..includes.equivalency.', 
+                       'EDUCATION.Some.college.or.associate.s.degree', 
+                       'EDUCATION.Bachelor.s.degree', 
+                       'EDUCATION.Graduate.or.professional.degree')
+
+# New names for the education columns
+new_education_names <- c('<High School', 'High School', 'Some college or Assoc.', 'Bachelors', 'Graduate')
+
+# Convert the education columns to numeric
+merged_data[education_columns] <- sapply(merged_data[education_columns], as.numeric)
+
+# Calculate the mean percentage for each education level
+education_distribution <- colMeans(merged_data[education_columns], na.rm = TRUE)
+
+# Create a data frame for plotting
+education_distribution_df <- data.frame(
+  Education_Level = factor(new_education_names, levels = new_education_names),  # Set the order of the education levels
+  Percentage = education_distribution
+)
+
+# Create the bar plot
+plot_education_distribution <- ggplot(education_distribution_df, aes(x = Education_Level, y = Percentage)) +
+  geom_bar(stat = "identity", fill = 'blue', color = 'black') +
+  theme_minimal() +
+  ggtitle('Distribution of Education Levels') +
+  xlab('Education Level') +
+  ylab('Percentage of Population') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Display the plot
+print(plot_education_distribution)
+
+```
+```{r}
+# List of race columns with new names
+race_columns <- c('RACE.White', 
+                  'RACE.Black.or.African.American', 
+                  'RACE.American.Indian.and.Alaska.Native', 
+                  'RACE.Asian', 
+                  'RACE.Native.Hawaiian.and.Other.Pacific.Islander', 
+                  'RACE.Some.other.race', 
+                  'RACE.Hispanic.or.Latino.origin..of.any.race.')
+
+# New names for the race columns
+new_race_names <- c('White', 
+                    'Black or African American', 
+                    'American Indian and Alaska Native', 
+                    'Asian', 
+                    'Native Hawaiian and Other Pacific Islander', 
+                    'Some Other Race', 
+                    'Hispanic or Latino')
+
+# Convert the race columns to numeric
+merged_data[race_columns] <- sapply(merged_data[race_columns], as.numeric)
+
+# Calculate the mean percentage for each race category
+race_distribution <- colMeans(merged_data[race_columns], na.rm = TRUE)
+
+# Create a data frame for plotting
+race_distribution_df <- data.frame(
+  Race_Category = factor(new_race_names, levels = new_race_names),  # Set the order of the race categories
+  Percentage = race_distribution
+)
+
+# Create the bar plot
+plot_race_distribution <- ggplot(race_distribution_df, aes(x = Race_Category, y = Percentage)) +
+  geom_bar(stat = "identity", fill = 'blue', color = 'black') +
+  theme_minimal() +
+  ggtitle('Distribution of Race Categories') +
+  xlab('Race Category') +
+  ylab('Percentage of Population') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Display the plot
+print(plot_race_distribution)
+```
+```{R}
+# List of occupation columns with new names
+occupation_columns <- c('Total.Workers.in.Management..business..science..and.arts.occupations', 
+                        'Total.Workers.in.Service.occupations', 
+                        'Workers.in.Sales.and.office.occupations', 
+                        'Workers.in.Natural.resources..construction..and.maintenance.occupations', 
+                        'Workers.in.Production..transportation..and.material.moving.occupations')
+
+# New names for the occupation columns
+new_occupation_names <- c('Management, Sci, Arts', 
+                          'Service', 
+                          'Sales and Office', 
+                          'Natural Resources, Construction', 
+                          'Production, Transportation')
+
+# Convert the occupation columns to numeric
+merged_data[occupation_columns] <- sapply(merged_data[occupation_columns], as.numeric)
+
+# Calculate the mean percentage for each occupation category
+occupation_distribution <- colMeans(merged_data[occupation_columns], na.rm = TRUE)
+
+# Create a data frame for plotting
+occupation_distribution_df <- data.frame(
+  Occupation_Category = factor(new_occupation_names, levels = new_occupation_names),  # Set the order of the occupation categories
+  Percentage = occupation_distribution
+)
+
+# Create the bar plot for occupation
+plot_occupation_distribution <- ggplot(occupation_distribution_df, aes(x = Occupation_Category, y = Percentage)) +
+  geom_bar(stat = "identity", fill = 'blue', color = 'black') +
+  theme_minimal() +
+  ggtitle('Distribution of Occupation Categories') +
+  xlab('Occupation Category') +
+  ylab('Percentage of Population') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# List of time of departure columns with new names
+departure_columns <- c('TIME.OF.DEPARTURE.12.00.a.m..to.4.59.a.m.', 
+                       'TIME.OF.DEPARTURE.5.00.a.m..to.5.29.a.m.', 
+                       'TIME.OF.DEPARTURE.5.30.a.m..to.5.59.a.m.', 
+                       'TIME.OF.DEPARTURE.6.00.a.m..to.6.29.a.m.', 
+                       'TIME.OF.DEPARTURE.6.30.a.m..to.6.59.a.m.', 
+                       'TIME.OF.DEPARTURE.7.00.a.m..to.7.29.a.m.', 
+                       'TIME.OF.DEPARTURE.7.30.a.m..to.7.59.a.m.', 
+                       'TIME.OF.DEPARTURE.8.00.a.m..to.8.29.a.m.', 
+                       'TIME.OF.DEPARTURE.8.30.a.m..to.8.59.a.m.', 
+                       'TIME.OF.DEPARTURE.9.00.a.m..to.11.59.p.m.')
+
+# New names for the time of departure columns
+new_departure_names <- c('12:00 AM to 4:59 AM', 
+                         '5:00 AM to 5:29 AM', 
+                         '5:30 AM to 5:59 AM', 
+                         '6:00 AM to 6:29 AM', 
+                         '6:30 AM to 6:59 AM', 
+                         '7:00 AM to 7:29 AM', 
+                         '7:30 AM to 7:59 AM', 
+                         '8:00 AM to 8:29 AM', 
+                         '8:30 AM to 8:59 AM', 
+                         '9:00 AM to 11:59 PM')
+
+# Convert the time of departure columns to numeric
+merged_data[departure_columns] <- sapply(merged_data[departure_columns], as.numeric)
+
+# Calculate the mean percentage for each time of departure category
+departure_distribution <- colMeans(merged_data[departure_columns], na.rm = TRUE)
+
+# Create a data frame for plotting
+departure_distribution_df <- data.frame(
+  Departure_Category = factor(new_departure_names, levels = new_departure_names),  # Set the order of the departure categories
+  Percentage = departure_distribution
+)
+
+# Create the bar plot for time of departure
+plot_departure_distribution <- ggplot(departure_distribution_df, aes(x = Departure_Category, y = Percentage)) +
+  geom_bar(stat = "identity", fill = 'blue', color = 'black') +
+  theme_minimal() +
+  ggtitle('Distribution of Time of Departure') +
+  xlab('Time of Departure') +
+  ylab('Percentage of Population') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# List of commute time columns with new names
+commute_columns <- c('Commute.to.work.Less.than.10.minutes', 
+                     'Commute.to.work.10.to.14.minutes', 
+                     'Commute.to.work.15.to.19.minutes', 
+                     'Commute.to.work..20.to.24.minutes', 
+                     'Commute.to.work.25.to.29.minutes', 
+                     'Commute.to.work.30.to.34.minutes', 
+                     'Commute.to.work.35.to.44.minutes', 
+                     'Commute.to.work.45.to.59.minutes', 
+                     'Commute.to.work.60.or.more.minutes')
+
+# New names for the commute time columns
+new_commute_names <- c('Less than 10 minutes', 
+                       '10 to 14 minutes', 
+                       '15 to 19 minutes', 
+                       '20 to 24 minutes', 
+                       '25 to 29 minutes', 
+                       '30 to 34 minutes', 
+                       '35 to 44 minutes', 
+                       '45 to 59 minutes', 
+                       '60 or more minutes')
+
+# Convert the commute time columns to numeric
+merged_data[commute_columns] <- sapply(merged_data[commute_columns], as.numeric)
+
+# Calculate the mean percentage for each commute time category
+commute_distribution <- colMeans(merged_data[commute_columns], na.rm = TRUE)
+
+# Create a data frame for plotting
+commute_distribution_df <- data.frame(
+  Commute_Category = factor(new_commute_names, levels = new_commute_names),  # Set the order of the commute categories
+  Percentage = commute_distribution
+)
+
+# Create the bar plot for commute time
+plot_commute_distribution <- ggplot(commute_distribution_df, aes(x = Commute_Category, y = Percentage)) +
+  geom_bar(stat = "identity", fill = 'blue', color = 'black') +
+  theme_minimal() +
+  ggtitle('Distribution of Commute Time') +
+  xlab('Commute Time') +
+  ylab('Percentage of Population') +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Display the plots
+print(plot_occupation_distribution)
+print(plot_departure_distribution)
+print(plot_commute_distribution)
+```
+
